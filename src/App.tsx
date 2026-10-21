@@ -190,7 +190,7 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-center gap-1.5 text-slate-700 font-normal">
               <span>© 2026 Follow-Up Query Studio. Developed by</span>
               <span className="font-semibold text-teal-600">
-                Ami - SEO Girl.
+                <strong>SEO Girl - Ami</strong>.
               </span>
               <span>All rights reserved.</span>
             </div>
