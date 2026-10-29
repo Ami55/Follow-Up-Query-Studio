@@ -2,7 +2,6 @@ import express, { Request, Response } from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
-import { createServer as createViteServer } from "vite";
 
 dotenv.config();
 
@@ -1009,6 +1008,7 @@ function getFallbackSimulationTurn(query: string) {
 // Start Server with Vite middleware in dev or static files in prod
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -1027,4 +1027,9 @@ async function startServer() {
   });
 }
 
-startServer();
+// On Vercel, the app runs as a serverless function (see api/index.ts), so it must not start its own server.
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
