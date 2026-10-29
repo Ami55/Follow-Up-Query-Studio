@@ -23,3 +23,7 @@ View your app in AI Studio: https://ai.studio/apps/9c675f26-2e55-439e-b78a-e0b7a
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Deploying on Vercel
+
+The API routes in `server.ts` run as a Vercel serverless function (`api/index.ts`, routed by `vercel.json`). Set `GEMINI_API_KEY` in the Vercel project's environment variables, then redeploy. Without it, the app returns built-in sample data.
