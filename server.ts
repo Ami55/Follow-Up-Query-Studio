@@ -687,6 +687,50 @@ Respond strictly in valid JSON matching the schema. Language: ${language === 'fa
 });
 
 // 3. Multi-Turn AI Search Engine Simulator (Query Fan-Out Emulation)
+
+// Real Google Search grounding for the simulator: the searches and sources returned
+// here are the ones Gemini actually ran and cited, not model-invented examples.
+async function runGroundedTurn(ai: GoogleGenAI, prompt: string): Promise<any | null> {
+  const systemInstruction = `You are a conversational AI search assistant. Answer the user's latest query concisely and accurately, using Google Search.
+After the answer, add one final line in exactly this format:
+NEXT: <follow-up question 1> | <follow-up question 2> | <follow-up question 3>
+The follow-ups are the next natural questions this user is likely to ask.`;
+  for (const model of ["gemini-2.5-flash", "gemini-3.1-flash-lite"]) {
+    if (isModelInCooldown(model)) continue;
+    try {
+      const response: any = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: { systemInstruction, tools: [{ googleSearch: {} }] },
+      });
+      const text: string = (response?.text || "").trim();
+      if (!text) continue;
+      const meta = response?.candidates?.[0]?.groundingMetadata || {};
+      const lines = text.split("\n");
+      const nextIdx = lines.findIndex((l: string) => l.trim().toUpperCase().startsWith("NEXT:"));
+      const suggestedNextQueries = nextIdx >= 0
+        ? lines[nextIdx].replace(/^\s*NEXT:\s*/i, "").split("|").map((q: string) => q.trim()).filter(Boolean)
+        : [];
+      const content = (nextIdx >= 0 ? lines.filter((_: string, i: number) => i !== nextIdx).join("\n") : text).trim();
+      const citedSources = (meta.groundingChunks || [])
+        .map((c: any) => c?.web)
+        .filter(Boolean)
+        .map((w: any) => ({ title: w.title || "", domain: w.title || "", excerpt: "", url: w.uri || "" }));
+      return {
+        content,
+        fanOutSearchesTriggered: Array.isArray(meta.webSearchQueries) ? meta.webSearchQueries : [],
+        citedSources,
+        suggestedNextQueries,
+        grounded: true,
+        model,
+      };
+    } catch (err: any) {
+      appendLog(`Grounded turn with "${model}" failed: ${String(err?.message || err).slice(0, 150)}`);
+    }
+  }
+  return null;
+}
+
 app.post("/api/simulate/turn", async (req: Request, res: Response) => {
   try {
     const { query, previousTurns, topicContext } = req.body;
@@ -697,7 +741,13 @@ app.post("/api/simulate/turn", async (req: Request, res: Response) => {
     const ai = getGeminiClient();
 
     if (!ai) {
-      return res.json(getFallbackSimulationTurn(query));
+      return res.json({ ...getFallbackSimulationTurn(query), grounded: false, sample: true });
+    }
+
+    const prompt0 = `Context: ${topicContext || "General Search"}\nConversation History: ${JSON.stringify(previousTurns || [])}\nLatest User Query: "${query}"`;
+    const grounded = await runGroundedTurn(ai, prompt0);
+    if (grounded) {
+      return res.json(grounded);
     }
 
     const systemPrompt = `You are simulating a modern conversational AI search engine (combining the mechanics of Google AI Overviews with query fan-out, Perplexity citations, and ChatGPT Search).
@@ -721,10 +771,10 @@ Format your output strictly as valid JSON matching the schema.`;
 
     const parsed = JSON.parse(rawText || "{}");
     const normalized = normalizeSimulationTurn(parsed, query);
-    return res.json(normalized);
+    return res.json({ ...normalized, grounded: false });
   } catch (error: any) {
     console.warn(`[Search Simulator API] ${formatLogErrorMessage(error)}`);
-    return res.json(getFallbackSimulationTurn(req.body.query));
+    return res.json({ ...getFallbackSimulationTurn(req.body.query), grounded: false, sample: true });
   }
 });
 
